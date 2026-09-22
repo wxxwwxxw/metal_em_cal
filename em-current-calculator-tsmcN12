@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TSMC N12 金属 / 过孔 Imax 电流计算器</title>
+<script>
+  (function(){
+    const root=document.documentElement;
+    let choice='system';
+    try {
+      const saved=localStorage.getItem('em-current-calculator-theme');
+      if(['light','dark','system'].includes(saved)) choice=saved;
+    } catch (_) {}
+    const prefersDark=window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme=choice==='system'?(prefersDark?'dark':'light'):choice;
+    root.dataset.themeChoice=choice;
+  })();
+</script>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    margin: 0; padding: 24px; line-height: 1.6;
+    background: #f5f6f8; color: #1c1e21;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  .page-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 18px; margin-bottom: 20px;
+  }
+  .header-copy { min-width: 0; flex: 1; }
+  .page-header .sub { margin-bottom: 0; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #6b7280; margin-bottom: 20px; font-size: 13px; }
+  .theme-picker {
+    flex: 0 0 auto; display: flex; gap: 5px; padding: 5px;
+    border: 1px solid #e5e7eb; border-radius: 10px; background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+  .theme-option {
+    width: 34px; height: 34px; padding: 4px; border: 1px solid transparent; border-radius: 7px;
+    background: transparent; color: #4b5563; cursor: pointer; font: inherit;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .theme-option:hover { background: #f3f4f6; }
+  .theme-option:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; }
+  .theme-option[aria-pressed="true"] { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
+  .theme-swatch {
+    display: block; width: 25px; height: 25px; border-radius: 6px;
+    border: 1px solid #9ca3af; box-shadow: inset 0 0 0 1px rgba(255,255,255,.35);
+  }
+  .theme-swatch.light { background: #fff; }
+  .theme-swatch.dark { background: #12315f; }
+  .theme-swatch.system { background: linear-gradient(135deg,#fff 0 49%,#12315f 51% 100%); }
+  .card {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+    padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+  .card h2 { margin: 0 0 4px; font-size: 17px; }
+  .card .desc { color: #6b7280; font-size: 12px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .field label { display: block; font-size: 12px; color: #4b5563; margin-bottom: 4px; }
+  .field select, .field input {
+    width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px;
+    font-size: 14px; background: #fff; color: #1c1e21;
+  }
+  .readonly {
+    width: 100%; min-height: 39px; padding: 8px 10px; border: 1px solid #d1d5db;
+    border-radius: 8px; background: #f9fafb; color: #374151; font-size: 14px;
+  }
+  .hidden { display: none !important; }
+  .field select:focus, .field input:focus { outline: 2px solid #3b82f6; border-color: transparent; }
+  .result {
+    margin-top: 16px; padding: 14px 16px; border-radius: 10px; background: #eff6ff;
+    border: 1px solid #bfdbfe; font-size: 15px;
+  }
+  .result .big { font-size: 26px; font-weight: 700; color: #1d4ed8; }
+  .result .formula { color: #6b7280; font-size: 12px; margin-top: 4px; font-family: ui-monospace, Consolas, monospace; }
+  .result .unit { color: #4b5563; font-size: 13px; }
+  .result .explain { color: #4b5563; font-size: 12px; margin-top: 6px; }
+  .tag {
+    display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+    background: #fef3c7; color: #92400e; font-size: 11px; font-weight: 600;
+  }
+  .warn { color: #b45309; background: #fffbeb; border-color: #fde68a; }
+  .note { font-size: 12px; color: #6b7280; margin-top: 12px; }
+  .table { margin-top: 14px; font-size: 12px; border-collapse: collapse; width: 100%; }
+  .table th, .table td { border: 1px solid #e5e7eb; padding: 5px 8px; text-align: left; }
+  .table th { background: #f3f4f6; font-weight: 600; }
+  .table-scroll { margin-top: 14px; max-height: 70vh; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; }
+  .table-scroll .table { margin-top: 0; min-width: 1080px; }
+  .table-scroll .table th { position: sticky; top: 0; z-index: 1; }
+  .mono { font-family: ui-monospace, Consolas, monospace; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: #2563eb; font-size: 13px; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  :root[data-theme="dark"] body { background: #111827; color: #e5e7eb; }
+  :root[data-theme="dark"] .card { background: #1f2937; border-color: #374151; }
+  :root[data-theme="dark"] .field label { color: #9ca3af; }
+  :root[data-theme="dark"] .field select,
+  :root[data-theme="dark"] .field input { background: #111827; color: #e5e7eb; border-color: #4b5563; }
+  :root[data-theme="dark"] .readonly { background: #111827; color: #d1d5db; border-color: #4b5563; }
+  :root[data-theme="dark"] .result { background: #1e3a5f; border-color: #1d4ed8; }
+  :root[data-theme="dark"] .result .big { color: #93c5fd; }
+  :root[data-theme="dark"] .result .formula,
+  :root[data-theme="dark"] .result .unit,
+  :root[data-theme="dark"] .result .explain { color: #d1d5db; }
+  :root[data-theme="dark"] .tag { background: #78350f; color: #fde68a; }
+  :root[data-theme="dark"] .table th { background: #374151; }
+  :root[data-theme="dark"] .table th,
+  :root[data-theme="dark"] .table td { border-color: #4b5563; }
+  :root[data-theme="dark"] .table-scroll { border-color: #4b5563; }
+  :root[data-theme="dark"] .warn { background: #422006; border-color: #92400e; color: #fbbf24; }
+  :root[data-theme="dark"] .theme-picker { background: #1f2937; border-color: #374151; }
+  :root[data-theme="dark"] .theme-option { color: #d1d5db; }
+  :root[data-theme="dark"] .theme-option:hover { background: #374151; }
+  :root[data-theme="dark"] .theme-option[aria-pressed="true"] { border-color: #60a5fa; background: #1e3a5f; color: #bfdbfe; }
+  @media (max-width: 720px) {
+    .page-header { flex-direction: column; }
+    .theme-picker { align-self: flex-end; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-header">
+    <div class="header-copy">
+      <h1>TSMC N12 金属 / 过孔 Imax 电流计算器</h1>
+      <div class="sub">当前工艺栈：1P11M_2Xa1Xd_h_3Xe_vhv_2Y2R + UT-AlRDL。基于 Table 10.4.1/3/4 与 Table 10.4.12/13/14；Imax 数据以结温 110°C 为基准。</div>
+    </div>
+    <div class="theme-picker" role="group" aria-label="页面主题">
+      <button class="theme-option" type="button" data-theme-choice="light" aria-label="白色主题" title="白色主题">
+        <span class="theme-swatch light" aria-hidden="true"></span>
+      </button>
+      <button class="theme-option" type="button" data-theme-choice="dark" aria-label="深色主题" title="深色主题">
+        <span class="theme-swatch dark" aria-hidden="true"></span>
+      </button>
+      <button class="theme-option" type="button" data-theme-choice="system" aria-label="跟随系统" title="跟随系统">
+        <span class="theme-swatch system" aria-hidden="true"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ===================== 温度修正 ===================== -->
+  <div class="card">
+    <h2>⓪ 结温修正 Rating Factor</h2>
+    <div class="desc">一个结温选项同步驱动全部计算；普通金属/Via 使用 Table 10.4.1，AP/RV 使用其专用 Table 10.4.12。</div>
+    <div class="grid">
+      <div class="field">
+        <label>结温 Junction Temperature</label>
+        <select id="junctionTemp"></select>
+      </div>
+    </div>
+    <div class="result" id="tempResult" aria-live="polite"></div>
+    <div class="note">不额外增加 85/90/95°C 档位。100°C 档中：普通金属/Via 使用 2.077（其规范规定低于 100°C 亦同）；AP/RV 严格按 100°C 的 1.329 计算。</div>
+    <details>
+      <summary>查看同步温度修正系数（Table 10.4.1 / 10.4.12）</summary>
+      <table class="table" id="temperatureTable"></table>
+    </details>
+  </div>
+
+  <!-- ===================== 金属 ===================== -->
+  <div class="card">
+    <h2>① 金属布线层最大允许电流 Imax</h2>
+    <div class="desc">直接选择实际版图层 M1–M11 或 AP；页面在后台映射到 Mxa/Mxd/Mxe/My/Mr 或 AP RDL 规则。</div>
+    <div class="grid">
+      <div class="field">
+        <label>实际金属层 Metal Level</label>
+        <select id="metalLevel"></select>
+      </div>
+      <div class="field">
+        <label>宽度 w (µm)</label>
+        <input id="metalW" type="number" step="any" min="0" placeholder="如 0.1">
+      </div>
+      <div class="field" id="metalLengthField">
+        <label>长度 L (µm)</label>
+        <input id="metalL" type="number" step="any" min="0" placeholder="如 3 或 10">
+      </div>
+    </div>
+    <div class="result" id="metalResult" style="display:none" aria-live="polite"></div>
+    <div class="note">注:表中系数(如 1.124)即“单位宽度电流(mA/µm)”;若需 mA/µm² 的电流密度,还需金属层厚度 t,Imax/(w×t)。</div>
+    <details>
+      <summary>查看当前工艺栈金属映射与 Imax 规则</summary>
+      <table class="table" id="metalTable"></table>
+    </details>
+  </div>
+
+  <!-- ===================== 过孔 ===================== -->
+  <div class="card">
+    <h2>② 过孔 Via 最大允许电流 Imax(每孔)</h2>
+    <div class="desc">直接选择实际 VIA1–VIA10 或 RV；页面在后台确定 Via 类型、落点金属与适用规则。</div>
+    <div class="grid">
+      <div class="field">
+        <label>实际过孔层 Via Level</label>
+        <select id="viaType"></select>
+      </div>
+      <div class="field">
+        <label>孔型 / 尺寸 (µm²)</label>
+        <select id="viaSize"></select>
+      </div>
+      <div class="field">
+        <label>连接层与后台规则</label>
+        <div class="readonly" id="viaConnection"></div>
+      </div>
+    </div>
+    <div class="grid" id="viaGeometry">
+      <div class="field"><label>底金属长度 Lb (µm)</label><input id="bL" type="number" step="any" min="0" placeholder="如 3"></div>
+      <div class="field"><label>底金属宽度 wb (µm)</label><input id="bW" type="number" step="any" min="0" placeholder="如 0.05"></div>
+      <div class="field"><label>上金属长度 Lu (µm)</label><input id="uL" type="number" step="any" min="0" placeholder="如 3"></div>
+      <div class="field"><label>上金属宽度 wu (µm)</label><input id="uW" type="number" step="any" min="0" placeholder="如 0.05"></div>
+    </div>
+    <div class="result" id="viaResult" style="display:none" aria-live="polite"></div>
+    <div class="note">VIA1–VIA10 规则含 “Single via” 与 “array” 标注：array 表示提高后的电流仅适用于过孔阵列；多条规则同时命中时取最小 Imax。RV 为独立固定规则。</div>
+    <div class="note">当前栈前台：M1–M11、AP、VIA1–VIA10、RV。后台保留 Table 10.4.4 的 119 条原始规则；RV 另按 Table 10.4.14 计算。</div>
+    <details>
+      <summary id="currentViaSummary">查看当前选中项规则</summary>
+      <table class="table" id="viaTable"></table>
+    </details>
+    <details>
+      <summary>查看后台完整过孔原始数据（Table 10.4.4，共 119 条）</summary>
+      <div class="table-scroll">
+        <table class="table" id="viaFullTable"></table>
+      </div>
+    </details>
+  </div>
+</div>
+
+<script>
+// ============ 结温 Imax 修正 (Table 10.4.1 / Table 10.4.12) ============
+// 普通金属/Via 与 AP/RV 使用不同的 foundry rating factor；温度选择保持同步。
+const TEMPERATURE_FACTORS = [
+  {temp:100, label:'100°C', factor:2.077, apFactor:1.329},
+  {temp:105, label:'105°C', factor:1.434, apFactor:1.151},
+  {temp:110, label:'110°C', factor:1.000, apFactor:1.000},
+  {temp:115, label:'115°C', factor:0.704, apFactor:0.872},
+  {temp:120, label:'120°C', factor:0.500, apFactor:0.764},
+  {temp:125, label:'125°C', factor:0.358, apFactor:0.671},
+  {temp:130, label:'130°C', factor:0.258, apFactor:0.591},
+  {temp:140, label:'140°C', factor:0.138, apFactor:0.463},
+  {temp:150, label:'150°C', factor:0.076, apFactor:0.367},
+];
+
+// ============ 金属层 Imax (Table 10.4.3) ============
+// rules: [ {L:'<=5'|'>5'|'<=4.5'|'>4.5'|'4.5..9'|'>9'|null, w:'any'|'>=x'|'<x'|null, mult} ]  按顺序首个命中
+const METALS = [
+  { id:'M1, Mxa', coef:1.124, offset:0.004, rules:[
+    {L:'<=5', w:null, mult:3},
+    {L:'>5', w:'>=0.04', mult:3},
+    {L:'>5', w:'<0.04', mult:2},
+  ]},
+  { id:'Mxd', coef:1.124, offset:0.004, rules:[
+    {L:'<=5', w:null, mult:3},
+    {L:'>5', w:'>=0.06', mult:2},
+    {L:'>5', w:'<0.06', mult:1},
+  ]},
+  { id:'Mxe', coef:1.292, offset:0.004, rules:[
+    {L:'<=5', w:null, mult:3},
+    {L:'>5', w:'>=0.06', mult:2},
+    {L:'>5', w:'<0.06', mult:1},
+  ]},
+  { id:'My (2X)', coef:1.517, offset:0.008, rules:[
+    {L:'<=4.5', w:null, mult:4},
+    {L:'>4.5', w:'>=0.45', mult:2},
+    {L:'4.5..9', w:'<0.45', mult:1.5},
+    {L:'>9', w:'<0.45', mult:1},
+  ]},
+  { id:'Myy (4X)', coef:3.470, offset:0.02, rules:[
+    {L:'<=4.5', w:null, mult:4},
+    {L:'>4.5', w:'>=0.45', mult:2},
+    {L:'4.5..9', w:'<0.45', mult:1.5},
+    {L:'>9', w:'<0.45', mult:1},
+  ]},
+  { id:'Mz (11X)', coef:10.329, offset:0.02, rules:[
+    {L:'<=4.5', w:null, mult:4},
+    {L:'4.5..9', w:null, mult:1.5},
+    {L:'>9', w:null, mult:1},
+  ]},
+  { id:'Mr (14X)', coef:13.248, offset:0.02, rules:[
+    {L:'<=4.5', w:null, mult:4},
+    {L:'4.5..9', w:null, mult:1.5},
+    {L:'>9', w:null, mult:1},
+  ]},
+  { id:'Mu (Ultra thick)', coef:39.486, offset:0.02, rules:[
+    {L:null, w:null, mult:1},
+  ]},
+];
+
+// ============ 过孔 Imax (Table 10.4.4) ============
+// 条件: L ∈ null|'<=5'|'<=4.5'|'>5'|'>4.5'|'4.5..9'|'>9' ; w ∈ null|'>=x'|'<x'
+function condL(L, c){ if(c===null) return true; if(c==='<=5') return L<=5; if(c==='<=4.5') return L<=4.5;
+  if(c==='>5') return L>5; if(c==='>4.5') return L>4.5; if(c==='4.5..9') return L>4.5 && L<=9; if(c==='>9') return L>9; return false; }
+function condW(w, c){ if(c===null) return true; const m=/^(>=|<=|<|>)([\d.]+)$/.exec(c); if(!m) return false;
+  const v=parseFloat(m[2]); const o=m[1];
+  if(o==='>=') return w>=v; if(o==='<=') return w<=v; if(o==='<') return w<v; if(o==='>') return w>v; return false; }
+
+// 每条 via 规则可用 base 覆盖所选尺寸的默认 base；全 null 条目仅作为 others fallback。
+const VIAS = [
+  { id:'Vxa (square)', sizes:[
+      {label:'(a) 0.032×0.032', base:0.0315},{label:'(b) 0.024×0.024', base:0.0225}],
+    landings:[{ metal:'M1/Mxa', rules:[
+      {bL:'<=5',bW:null,uL:'<=5',uW:null,mult:3,note:''},
+      {bL:'>5',bW:'>=0.04',uL:'<=5',uW:null,mult:3,note:'array'},
+      {bL:'<=5',bW:null,uL:'>5',uW:'>=0.04',mult:3,note:'array'},
+      {bL:null,bW:null,uL:null,uW:null,mult:2,note:''},
+    ]}],
+  },
+  { id:'Vxa (rectangular)', sizes:[
+      {label:'(a) 0.032×0.080', base:0.0630},{label:'(b) 0.024×0.072', base:0.0450}],
+    landings:[{ metal:'M1/Mxa', rules:[
+      {bL:'<=5',bW:null,uL:'<=5',uW:null,mult:3,note:''},
+      {bL:'>5',bW:'>=0.04',uL:'<=5',uW:null,mult:2,note:'array'},
+      {bL:'<=5',bW:null,uL:'>5',uW:'>=0.04',mult:2,note:'array'},
+      {bL:null,bW:null,uL:null,uW:null,mult:1.5,note:''},
+    ]}],
+  },
+  { id:'Vxa (2X square)', sizes:[{label:'0.064×0.064', base:0.0674}],
+    landings:[{ metal:'M1/Mxa', rules:[
+      {bL:'<=5',bW:null,uL:'<=5',uW:null,mult:3,note:''},
+      {bL:'>5',bW:'>=0.128',uL:'<=5',uW:null,mult:2,note:'array'},
+      {bL:'<=5',bW:null,uL:'>5',uW:'>=0.128',mult:2,note:'array'},
+      {bL:null,bW:null,uL:null,uW:null,mult:1.5,note:''},
+    ]}],
+  },
+  { id:'Vxd', sizes:[
+      {label:'(a) 0.032×0.032', base:0.0405},{label:'(b) 0.024×0.024', base:0.0405}],
+    landings:[{ metal:'Mxa', rules:[
+      {bL:'<=5',bW:null,uL:'<=5',uW:null,mult:3,note:''},
+      {bL:'>5',bW:'>=0.04',uL:'<=5',uW:null,mult:2,note:'array'},
+      {bL:'<=5',bW:null,uL:'>5',uW:'>=0.06',mult:2,note:'array'},
+      {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+    ]}],
+  },
+  { id:'Vxd (rectangular)', sizes:[
+      {label:'(a) 0.032×0.080', base:0.0810},{label:'(b) 0.024×0.072', base:0.0810}],
+    landings:[{ metal:'Mxa', rules:[
+      {bL:'<=5',bW:null,uL:'<=5',uW:null,mult:3,note:''},
+      {bL:'>5',bW:'>=0.04',uL:'<=5',uW:null,mult:2,note:'array'},
+      {bL:'<=5',bW:null,uL:'>5',uW:'>=0.06',mult:2,note:'array'},
+      {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+    ]}],
+  },
+  { id:'Vxe', sizes:[{label:'0.04×0.04', base:0.0465}],
+    landings:[{ metal:'Mxd/Mxe', rules:[
+      {bL:'<=5',bW:null,uL:'<=5',uW:null,mult:3,note:''},
+      {bL:'>5',bW:'>=0.06',uL:'<=5',uW:null,mult:2,note:'array'},
+      {bL:'<=5',bW:null,uL:'>5',uW:'>=0.06',mult:2,note:'array'},
+      {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+    ]}],
+  },
+  { id:'Vxe (rectangular)', sizes:[{label:'0.04×0.1', base:0.0930}],
+    landings:[{ metal:'Mxd/Mxe', rules:[
+      {bL:'<=5',bW:null,uL:'<=5',uW:null,mult:3,note:''},
+      {bL:'>5',bW:'>=0.06',uL:'<=5',uW:null,mult:2,note:'array'},
+      {bL:'<=5',bW:null,uL:'>5',uW:'>=0.06',mult:2,note:'array'},
+      {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+    ]}],
+  },
+  { id:'Vy (2X)', sizes:[{label:'0.062×0.062', base:0.0819}],
+    landings:[
+      { metal:'Mxe', rules:[
+        {bL:'<=4.5',bW:null,uL:'<=4.5',uW:null,mult:4,note:''},
+        {bL:'>4.5',bW:'>=0.09',uL:'<=4.5',uW:null,mult:2,note:'array'},
+        {bL:'<=4.5',bW:null,uL:'>4.5',uW:'>=0.45',mult:2,note:'array'},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:'>=0.45',mult:1.5,note:'Single via'},
+        {bL:'>4.5',bW:'>=0.09',uL:'>4.5',uW:'>=0.45',mult:2,note:'array'},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:'<0.45',mult:1.5,note:''},
+        {bL:'>4.5',bW:'>=0.09',uL:'4.5..9',uW:'<0.45',mult:1.5,note:''},
+        {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+      ]},
+      { metal:'My', rules:[
+        {bL:'<=4.5',bW:null,uL:'<=4.5',uW:null,mult:4,note:''},
+        {bL:'>4.5',bW:'>=0.45',uL:'<=4.5',uW:null,mult:2,note:'array'},
+        {bL:'4.5..9',bW:'>=0.45',uL:'<=4.5',uW:null,mult:1.5,note:'Single via'},
+        {bL:'<=4.5',bW:null,uL:'>4.5',uW:'>=0.45',mult:2,note:'array'},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:'>=0.45',mult:1.5,note:'Single via'},
+        {bL:'>4.5',bW:'>=0.45',uL:'>4.5',uW:'>=0.45',mult:2,note:'array'},
+        {bL:'4.5..9',bW:'>=0.45',uL:'4.5..9',uW:'>=0.45',mult:1.5,note:'Single via'},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:'<0.45',mult:1.5,note:''},
+        {bL:'>4.5',bW:'>=0.45',uL:'4.5..9',uW:'<0.45',mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'4.5..9',uW:'<0.45',mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'<=4.5',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'>4.5',uW:'>=0.45',mult:1.5,note:''},
+        {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+      ]},
+    ]},
+  { id:'Vyy (4X)', sizes:[{label:'0.126×0.126', base:0.3678}],
+    landings:[{ metal:'My/Myy', rules:[
+        {bL:'<=4.5',bW:null,uL:'<=4.5',uW:null,mult:4,note:''},
+        {bL:'>4.5',bW:'>=0.45',uL:'<=4.5',uW:null,mult:2,note:'array'},
+        {bL:'4.5..9',bW:'>=0.45',uL:'<=4.5',uW:null,mult:1.5,note:'Single via'},
+        {bL:'<=4.5',bW:null,uL:'>4.5',uW:'>=0.45',mult:2,note:'array'},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:'>=0.45',mult:1.5,note:'Single via'},
+        {bL:'>4.5',bW:'>=0.45',uL:'>4.5',uW:'>=0.45',mult:2,note:'array'},
+        {bL:'4.5..9',bW:'>=0.45',uL:'4.5..9',uW:'>=0.45',mult:1.5,note:'Single via'},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:'<0.45',mult:1.5,note:''},
+        {bL:'>4.5',bW:'>=0.45',uL:'4.5..9',uW:'<0.45',mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'4.5..9',uW:'<0.45',mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'<=4.5',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'>4.5',uW:'>=0.45',mult:1.5,note:''},
+        {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+    ]}],
+  },
+  { id:'Vz (10X)', sizes:[{label:'0.324×0.324', base:1.2739}],
+    landings:[
+      { metal:'Mxe', rules:[
+        {bL:'<=5',bW:null,uL:'<=4.5',uW:null,mult:3,note:''},
+        {bL:'>5',bW:'>=0.08',uL:'<=4.5',uW:null,mult:2,note:'array'},
+        {bL:'>5',bW:'>=0.08',uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'<=5',bW:null,uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+      ]},
+      { metal:'My', sizes:[{label:'0.324×0.324', base:1.4897}], rules:[
+        {bL:'<=4.5',bW:null,uL:'<=4.5',uW:null,mult:4,note:''},
+        {bL:'>4.5',bW:'>=0.45',uL:'<=4.5',uW:null,mult:2,base:1.3051,note:'array'},
+        {bL:'4.5..9',bW:'>=0.45',uL:'<=4.5',uW:null,mult:1.5,note:'Single via'},
+        {bL:'>4.5',bW:'>=0.45',uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'<=4.5',uW:null,mult:1.5,note:''},
+        {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+      ]},
+      { metal:'Myy', sizes:[{label:'0.324×0.324', base:3.3659}], rules:[
+        {bL:'<=4.5',bW:null,uL:'<=4.5',uW:null,mult:4,note:''},
+        {bL:'>4.5',bW:'>=0.45',uL:'<=4.5',uW:null,mult:2,note:'array'},
+        {bL:'4.5..9',bW:'>=0.45',uL:'<=4.5',uW:null,mult:1.5,base:2.9488,note:'Single via'},
+        {bL:'>4.5',bW:'>=0.45',uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'<=4.5',uW:null,mult:1.5,note:''},
+        {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+      ]},
+      { metal:'Mz', sizes:[{label:'0.324×0.324', base:3.5199}], rules:[
+        {bL:'<=4.5',bW:null,uL:'<=4.5',uW:null,mult:4,note:''},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:null,uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:null,uL:'<=4.5',uW:null,mult:1.5,note:''},
+        {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+      ]},
+    ]},
+  { id:'Vr (13X)', sizes:[{label:'0.414×0.414', base:1.6228}],
+    landings:[
+      { metal:'Mxe', rules:[
+        {bL:'<=5',bW:null,uL:'<=4.5',uW:null,mult:3,note:''},
+        {bL:'>5',bW:'>=0.08',uL:'<=4.5',uW:null,mult:2,note:'array'},
+        {bL:'>5',bW:'>=0.08',uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'<=5',bW:null,uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+      ]},
+      { metal:'My', sizes:[{label:'0.414×0.414', base:1.8993}], rules:[
+        {bL:'<=4.5',bW:null,uL:'<=4.5',uW:null,mult:4,note:''},
+        {bL:'>4.5',bW:'>=0.45',uL:'<=4.5',uW:null,mult:2,note:'array'},
+        {bL:'4.5..9',bW:'>=0.45',uL:'<=4.5',uW:null,mult:1.5,note:'Single via'},
+        {bL:'>4.5',bW:'>=0.45',uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'<=4.5',uW:null,mult:1.5,note:''},
+        {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+      ]},
+      { metal:'Myy', sizes:[{label:'0.414×0.414', base:4.3028}], rules:[
+        {bL:'<=4.5',bW:null,uL:'<=4.5',uW:null,mult:4,note:''},
+        {bL:'>4.5',bW:'>=0.45',uL:'<=4.5',uW:null,mult:2,note:'array'},
+        {bL:'4.5..9',bW:'>=0.45',uL:'<=4.5',uW:null,mult:1.5,note:'Single via'},
+        {bL:'>4.5',bW:'>=0.45',uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:'<0.45',uL:'<=4.5',uW:null,mult:1.5,note:''},
+        {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+      ]},
+      { metal:'Mr/Mz', sizes:[{label:'0.414×0.414', base:5.6966}], rules:[
+        {bL:'<=4.5',bW:null,uL:'<=4.5',uW:null,mult:4,note:''},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:null,uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:null,uL:'<=4.5',uW:null,mult:1.5,note:''},
+        {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+      ]},
+    ]},
+  { id:'Vu (ultra thick)', sizes:[{label:'0.324×0.324', base:3.5199}],
+    landings:[{ metal:'Mz', rules:[
+        {bL:'<=4.5',bW:null,uL:'<=4.5',uW:null,mult:4,note:''},
+        {bL:'<=4.5',bW:null,uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:null,uL:'4.5..9',uW:null,mult:1.5,note:''},
+        {bL:'4.5..9',bW:null,uL:'<=4.5',uW:null,mult:1.5,note:''},
+        {bL:null,bW:null,uL:null,uW:null,mult:1,note:''},
+    ]}],
+  },
+];
+
+// 当前 1P11M + UT-AlRDL 实际过孔层 -> Table 10.4.4 后台规则。
+// landing 指定实际底层金属类型；RV 使用 Table 10.4.14，不进入 119 条原始规则断言。
+const STACK_VIAS = [
+  {id:'VIA1', code:'Vxa1', bottom:'M1',  upper:'M2',  variants:[
+    {source:'Vxa (square)',      landing:'M1',  shape:'方孔'},
+    {source:'Vxa (rectangular)', landing:'M1',  shape:'矩形孔'},
+    {source:'Vxa (2X square)',   landing:'M1',  shape:'2X 方孔'},
+  ]},
+  {id:'VIA2', code:'Vxa2', bottom:'M2',  upper:'M3',  variants:[
+    {source:'Vxa (square)',      landing:'Mxa', shape:'方孔'},
+    {source:'Vxa (rectangular)', landing:'Mxa', shape:'矩形孔'},
+    {source:'Vxa (2X square)',   landing:'Mxa', shape:'2X 方孔'},
+  ]},
+  {id:'VIA3', code:'Vxd1', bottom:'M3',  upper:'M4',  variants:[
+    {source:'Vxd',               landing:'Mxa', shape:'方孔'},
+    {source:'Vxd (rectangular)', landing:'Mxa', shape:'矩形孔'},
+  ]},
+  {id:'VIA4', code:'Vxe1', bottom:'M4',  upper:'M5',  variants:[
+    {source:'Vxe',               landing:'Mxd', shape:'方孔'},
+    {source:'Vxe (rectangular)', landing:'Mxd', shape:'矩形孔'},
+  ]},
+  {id:'VIA5', code:'Vxe2', bottom:'M5',  upper:'M6',  variants:[
+    {source:'Vxe',               landing:'Mxe', shape:'方孔'},
+    {source:'Vxe (rectangular)', landing:'Mxe', shape:'矩形孔'},
+  ]},
+  {id:'VIA6', code:'Vxe3', bottom:'M6',  upper:'M7',  variants:[
+    {source:'Vxe',               landing:'Mxe', shape:'方孔'},
+    {source:'Vxe (rectangular)', landing:'Mxe', shape:'矩形孔'},
+  ]},
+  {id:'VIA7',  code:'Vy1',  bottom:'M7',  upper:'M8',  variants:[{source:'Vy (2X)',  landing:'Mxe', shape:'标准孔'}]},
+  {id:'VIA8',  code:'Vy2',  bottom:'M8',  upper:'M9',  variants:[{source:'Vy (2X)',  landing:'My',  shape:'标准孔'}]},
+  {id:'VIA9',  code:'Vr1',  bottom:'M9',  upper:'M10', variants:[{source:'Vr (13X)', landing:'My',  shape:'标准孔'}]},
+  {id:'VIA10', code:'Vr2',  bottom:'M10', upper:'M11', variants:[{source:'Vr (13X)', landing:'Mr',  shape:'标准孔'}]},
+  {id:'RV',    code:'RV',   bottom:'M11', upper:'AP', kind:'rv', size:'2.7×2.7', imax110:12.98},
+];
+
+// 当前 metallization option 的实际层名 -> Table 10.4.3 后台类型。
+// UT-AlRDL 是 AP RDL (28 kÅ) 选项，不在当前栈中加入 Mu。
+const STACK_METALS = [
+  {id:'M1',  pdk:'M1',             source:0},
+  {id:'M2',  pdk:'Mxa1 (1X)',       source:0},
+  {id:'M3',  pdk:'Mxa2 (1X)',       source:0},
+  {id:'M4',  pdk:'Mxd1 (1.25X, H)', source:1},
+  {id:'M5',  pdk:'Mxe1 (1.25X, V)', source:2},
+  {id:'M6',  pdk:'Mxe2 (1.25X, H)', source:2},
+  {id:'M7',  pdk:'Mxe3 (1.25X, V)', source:2},
+  {id:'M8',  pdk:'My1 (2X)',        source:3},
+  {id:'M9',  pdk:'My2 (2X)',        source:3},
+  {id:'M10', pdk:'Mr1 (14X)',       source:6},
+  {id:'M11', pdk:'Mr2 (14X)',       source:6},
+  {id:'AP',  pdk:'AP RDL (28 kÅ)', kind:'ap'},
+];
+const AP_RDL = {coef:6.184, name:'AP RDL (28 kÅ)'};
+
+// ============ DOM 绑定 ============
+const $ = (id)=>document.getElementById(id);
+
+// 页面主题：白色 / 深色 / 跟随系统。选择保存在当前浏览器中。
+const THEME_STORAGE_KEY='em-current-calculator-theme';
+const themeButtons=[...document.querySelectorAll('.theme-option')];
+const systemThemeQuery=window.matchMedia('(prefers-color-scheme: dark)');
+function applyThemeChoice(choice,{save=true}={}){
+  const valid=['light','dark','system'].includes(choice)?choice:'system';
+  const actual=valid==='system'?(systemThemeQuery.matches?'dark':'light'):valid;
+  document.documentElement.dataset.theme=actual;
+  document.documentElement.dataset.themeChoice=valid;
+  themeButtons.forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.themeChoice===valid)));
+  if(save){
+    try { localStorage.setItem(THEME_STORAGE_KEY,valid); } catch (_) {}
+  }
+}
+themeButtons.forEach(button=>button.addEventListener('click',()=>applyThemeChoice(button.dataset.themeChoice)));
+const syncSystemTheme=()=>{
+  if(document.documentElement.dataset.themeChoice==='system') applyThemeChoice('system',{save:false});
+};
+if(systemThemeQuery.addEventListener) systemThemeQuery.addEventListener('change',syncSystemTheme);
+else if(systemThemeQuery.addListener) systemThemeQuery.addListener(syncSystemTheme);
+applyThemeChoice(document.documentElement.dataset.themeChoice||'system',{save:false});
+
+// 温度修正
+const junctionTemp = $('junctionTemp');
+TEMPERATURE_FACTORS.forEach((item,i)=>{
+  const o=document.createElement('option');
+  o.value=i;
+  o.textContent=item.temp===100 ? '100°C（普通层低于100°C沿用此档）' : item.label;
+  junctionTemp.appendChild(o);
+});
+junctionTemp.value=String(TEMPERATURE_FACTORS.findIndex(item=>item.temp===110));
+
+function currentTemperature(){
+  return TEMPERATURE_FACTORS[+junctionTemp.value] || TEMPERATURE_FACTORS.find(item=>item.temp===110);
+}
+function updateTemperatureInfo(){
+  const item=currentTemperature();
+  $('tempResult').innerHTML=`当前结温：<span class="big">${item.label}</span><br>`+
+    `<span class="formula">普通金属 / VIA1–VIA10：factor = ${item.factor.toFixed(3)}</span><br>`+
+    `<span class="formula">AP / RV：factor = ${item.apFactor.toFixed(3)}</span>`;
+}
+(function buildTemperatureTable(){
+  let html='<tr><th>结温</th><th>普通金属/Via<br>Table 10.4.1</th><th>AP/RV<br>Table 10.4.12</th></tr>';
+  for(const item of TEMPERATURE_FACTORS){
+    const note=item.temp===100?'（普通层低于100°C仍用2.077；AP/RV仅代表100°C）':'';
+    html+=`<tr><td>${item.label}${note}</td><td class="mono">${item.factor.toFixed(3)}</td><td class="mono">${item.apFactor.toFixed(3)}</td></tr>`;
+  }
+  $('temperatureTable').innerHTML=html;
+})();
+updateTemperatureInfo();
+
+// 金属
+const metalLevel = $('metalLevel');
+STACK_METALS.forEach((m,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=m.id; metalLevel.appendChild(o); });
+
+function currentStackMetal(){
+  return STACK_METALS[+metalLevel.value] || STACK_METALS[0];
+}
+function updateMetalFields(){
+  const isAP=currentStackMetal().kind==='ap';
+  $('metalLengthField').classList.toggle('hidden',isAP);
+}
+
+function metalMult(metal, L, w){
+  for (const r of metal.rules){
+    if (condL(L, r.L) && condW(w, r.w)) return r.mult;
+  }
+  return 1;
+}
+function calcMetal(){
+  const layer = currentStackMetal();
+  const w = parseFloat($('metalW').value);
+  const L = parseFloat($('metalL').value);
+  const out = $('metalResult');
+  const isAP=layer.kind==='ap';
+  if (!Number.isFinite(w) || (!isAP && !Number.isFinite(L))) { out.style.display='none'; return; }
+  out.style.display = 'block';
+  if (w <= 0 || (!isAP && L <= 0)) {
+    out.className = 'result warn';
+    out.textContent = isAP ? '宽度 w 必须大于 0。' : '宽度 w 与长度 L 必须大于 0。';
+    return;
+  }
+  const temperature = currentTemperature();
+  if(isAP){
+    const imax110=AP_RDL.coef*w;
+    const imax=temperature.apFactor*imax110;
+    out.className='result';
+    out.innerHTML=`Imax @ ${temperature.label} = <span class="big">${imax.toFixed(4)} mA</span><br>`+
+      `<span class="formula">${temperature.apFactor.toFixed(3)} × [${AP_RDL.coef} × ${w}]</span><br>`+
+      `<span class="formula">Imax @ 110°C = ${imax110.toFixed(4)} mA &nbsp;|&nbsp; AP/RV 专用温度系数</span>`+
+      `<div class="explain">实际层：AP；后台规则：${AP_RDL.name}，Table 10.4.13。该公式与金属长度无关。</div>`;
+    return;
+  }
+  const metal = METALS[layer.source];
+  if (w <= metal.offset) {
+    out.className = 'result warn';
+    out.innerHTML = `宽度 w=${w} ≤ 偏移 ${metal.offset} µm,公式 (w−offset)≤0,结果无效。请增大宽度。`;
+    return;
+  }
+  const mult = metalMult(metal, L, w);
+  const imax110 = mult * metal.coef * (w - metal.offset);
+  const imax = temperature.factor * imax110;
+  out.className = 'result';
+  out.innerHTML = `Imax @ ${temperature.label} = <span class="big">${imax.toFixed(4)} mA</span><br>` +
+    `<span class="formula">${temperature.factor.toFixed(3)} × [${mult} × ${metal.coef} × (${w} − ${metal.offset})]</span><br>` +
+    `<span class="formula">Imax @ 110°C = ${imax110.toFixed(4)} mA &nbsp;|&nbsp; 命中规则：乘数 ×${mult}</span><br>` +
+    `<span class="formula">单位宽度电流 ≈ ${(imax/w).toFixed(4)} mA/µm（电流密度还需 ÷ 厚度 t）</span>`+
+    `<div class="explain">实际层：${layer.id}；后台映射：${layer.pdk}。</div>`;
+}
+
+// 金属规则表
+(function buildMetalTable(){
+  const tb = $('metalTable');
+  const groups=[
+    {layers:'M1',source:0,pdk:'M1'},
+    {layers:'M2–M3',source:0,pdk:'Mxa (1X)'},
+    {layers:'M4',source:1,pdk:'Mxd (1.25X)'},
+    {layers:'M5–M7',source:2,pdk:'Mxe (1.25X)'},
+    {layers:'M8–M9',source:3,pdk:'My (2X)'},
+    {layers:'M10–M11',source:6,pdk:'Mr (14X)'},
+  ];
+  let html = '<tr><th>实际层</th><th>后台类型</th><th>系数</th><th>偏移</th><th>长度分档</th><th>宽度条件</th><th>乘数</th></tr>';
+  for (const group of groups){
+    const m=METALS[group.source];
+    for (let i=0;i<m.rules.length;i++){
+      const r = m.rules[i];
+      const lLabel = r.L===null?'任意':(r.L==='<=5'?'L≤5':r.L==='<=4.5'?'L≤4.5':r.L==='4.5..9'?'4.5&lt;L≤9':r.L==='>9'?'L&gt;9':'L&gt;'+r.L.slice(1));
+      const wLabel = r.w===null?'任意宽度':('w'+r.w.replace('>=','≥').replace('<=','≤').replace('<','&lt;').replace('>','&gt;'));
+      html += `<tr>${i===0?`<td rowspan="${m.rules.length}">${group.layers}</td><td rowspan="${m.rules.length}">${group.pdk}</td><td rowspan="${m.rules.length}" class="mono">${m.coef}</td><td rowspan="${m.rules.length}" class="mono">${m.offset}</td>`:''}<td>${lLabel}</td><td>${wLabel}</td><td>×${r.mult}</td></tr>`;
+    }
+  }
+  html += `<tr><td>AP</td><td>${AP_RDL.name}</td><td class="mono" colspan="5">Imax @ 110°C = ${AP_RDL.coef} × w mA（Table 10.4.13）</td></tr>`;
+  tb.innerHTML = html;
+})();
+
+// 过孔
+const viaType = $('viaType'), viaSize = $('viaSize');
+let viaEntries=[];
+STACK_VIAS.forEach((v,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=v.id; viaType.appendChild(o); });
+
+function currentStackVia(){
+  return STACK_VIAS[+viaType.value] || STACK_VIAS[0];
+}
+function rawViaById(id){
+  return VIAS.find(v=>v.id===id);
+}
+function rawLandingFor(via,metal){
+  return via.landings.find(ln=>ln.metal.split('/').map(v=>v.trim()).includes(metal));
+}
+function currentViaEntry(){
+  return viaEntries[+viaSize.value] || viaEntries[0];
+}
+function renderSizes(){
+  const stackVia=currentStackVia();
+  viaEntries=[];
+  viaSize.innerHTML='';
+  if(stackVia.kind==='rv'){
+    viaEntries.push({kind:'rv',size:{label:stackVia.size},stackVia});
+  }else{
+    for(const variant of stackVia.variants){
+      const via=rawViaById(variant.source);
+      const landing=via && rawLandingFor(via,variant.landing);
+      if(!via || !landing) throw new Error(`Via 映射无效：${stackVia.id} -> ${variant.source}/${variant.landing}`);
+      const sizes=landing.sizes || via.sizes;
+      for(const size of sizes){
+        viaEntries.push({stackVia,via,landing,landingMetal:variant.landing,size,label:`${variant.shape} · ${size.label}`});
+      }
+    }
+  }
+  viaEntries.forEach((entry,i)=>{
+    const o=document.createElement('option');
+    o.value=i;
+    o.textContent=entry.kind==='rv' ? `固定 ${entry.size.label}` : entry.label;
+    viaSize.appendChild(o);
+  });
+  $('viaGeometry').classList.toggle('hidden',stackVia.kind==='rv');
+  updateViaConnection();
+  buildViaRuleTable();
+}
+function updateViaConnection(){
+  const stackVia=currentStackVia();
+  const entry=currentViaEntry();
+  $('viaConnection').textContent=stackVia.kind==='rv'
+    ? `${stackVia.bottom} → ${stackVia.upper}｜RV / Table 10.4.14`
+    : `${stackVia.bottom} → ${stackVia.upper}｜后台 ${stackVia.code} · ${entry.via.id} / landing ${entry.landingMetal}`;
+}
+function currentBase(){
+  return currentViaEntry().size.base;
+}
+
+function isViaFallback(r){
+  return r.bL===null && r.bW===null && r.uL===null && r.uW===null;
+}
+function matchesViaRule(r, bL, bW, uL, uW){
+  return condL(bL, r.bL) && condW(bW, r.bW) && condL(uL, r.uL) && condW(uW, r.uW);
+}
+function resolveViaRules(ln, defaultBase, bL, bW, uL, uW){
+  const specific = ln.rules.filter(r=>!isViaFallback(r) && matchesViaRule(r,bL,bW,uL,uW));
+  const fallback = ln.rules.find(isViaFallback) || {bL:null,bW:null,uL:null,uW:null,mult:1,note:''};
+  const pool = specific.length ? specific : [fallback];
+  const candidates = pool.map(rule=>{
+    const base = rule.base ?? defaultBase;
+    return {rule, base, imax:rule.mult * base};
+  }).sort((a,b)=>a.imax-b.imax);
+  return {selected:candidates[0], candidates, usedFallback:!specific.length};
+}
+function lengthLabel(c){
+  return ({'<=5':'L≤5','>5':'L&gt;5','<=4.5':'L≤4.5','>4.5':'L&gt;4.5','4.5..9':'4.5&lt;L≤9','>9':'L&gt;9'})[c] || '';
+}
+function widthLabel(c){
+  return c ? 'w' + c.replace('>=','≥').replace('<=','≤').replace('<','&lt;').replace('>','&gt;') : '';
+}
+function sideLabel(L, w){
+  return [lengthLabel(L),widthLabel(w)].filter(Boolean).join('，') || '任意';
+}
+function qualifierLabel(note){
+  if(note==='array') return '需过孔阵列';
+  if(note==='Single via') return 'Single via';
+  return '';
+}
+function applicabilityLabel(note){
+  if(note==='array') return 'per via（需过孔阵列）';
+  if(note==='Single via') return 'Single via';
+  return 'per via';
+}
+function buildViaRuleTable(){
+  const table = $('viaTable');
+  const stackVia=currentStackVia();
+  const entry=currentViaEntry();
+  const temperature = currentTemperature();
+  if(stackVia.kind==='rv'){
+    const imax=temperature.apFactor*stackVia.imax110;
+    table.innerHTML=`<tr><th>连接层</th><th>Drawn Size</th><th>Imax @ 110°C</th><th>Imax @ ${temperature.label}</th><th>源表</th></tr>`+
+      `<tr><td>${stackVia.bottom} → ${stackVia.upper}</td><td>${stackVia.size} µm²</td><td class="mono">${stackVia.imax110.toFixed(4)} mA/RV</td>`+
+      `<td class="mono">${temperature.apFactor.toFixed(3)} × ${stackVia.imax110.toFixed(4)} = ${imax.toFixed(4)}</td><td>Table 10.4.14</td></tr>`;
+    $('currentViaSummary').textContent=`查看当前选中项规则：RV / ${stackVia.bottom} → ${stackVia.upper} / ${temperature.label}`;
+    return;
+  }
+  const ln = entry.landing;
+  const defaultBase = currentBase();
+  let html = `<tr><th>底金属条件</th><th>上金属条件</th><th>Imax @ 110°C</th><th>Imax @ ${temperature.label}</th><th>适用说明</th></tr>`;
+  for(const r of ln.rules){
+    const fallback = isViaFallback(r);
+    const base = r.base ?? defaultBase;
+    const bottom = fallback ? '其他' : sideLabel(r.bL,r.bW);
+    const upper = fallback ? '其他' : sideLabel(r.uL,r.uW);
+    const imax110 = r.mult*base;
+    html += `<tr><td>${bottom}</td><td>${upper}</td><td class="mono">${r.mult} × ${base.toFixed(4)} = ${imax110.toFixed(4)}</td><td class="mono">${temperature.factor.toFixed(3)} × ${imax110.toFixed(4)} = ${(temperature.factor*imax110).toFixed(4)}</td><td>${applicabilityLabel(r.note)}</td></tr>`;
+  }
+  table.innerHTML = html;
+  $('currentViaSummary').textContent = `查看当前选中项规则：${stackVia.id}（${stackVia.bottom} → ${stackVia.upper}）/ ${entry.label} / 后台 ${stackVia.code} · ${entry.via.id} / ${temperature.label}（${ln.rules.length} 条）`;
+}
+function buildFullViaTable(){
+  const table = $('viaFullTable');
+  const temperature = currentTemperature();
+  let html = `<tr><th>Via 类型</th><th>尺寸</th><th>Bottom Metal</th><th>底金属条件</th><th>上金属条件</th><th>Imax @ 110°C</th><th>Imax @ ${temperature.label}</th><th>适用说明</th></tr>`;
+  let rowCount = 0;
+  for(const v of VIAS){
+    const viaRows = v.landings.reduce((sum,ln)=>sum+ln.rules.length,0);
+    for(let li=0;li<v.landings.length;li++){
+      const ln = v.landings[li];
+      const sizes = ln.sizes || v.sizes;
+      const sizeText = sizes.map(s=>s.label).join('<br>');
+      for(let ri=0;ri<ln.rules.length;ri++){
+        const r = ln.rules[ri];
+        const fallback = isViaFallback(r);
+        const bottom = fallback ? '其他' : sideLabel(r.bL,r.bW);
+        const upper = fallback ? '其他' : sideLabel(r.uL,r.uW);
+        const formulas = sizes.map(s=>{
+          const base = r.base ?? s.base;
+          return `${r.mult} × ${base.toFixed(4)} = ${(r.mult*base).toFixed(4)}`;
+        }).join('<br>');
+        const adjusted = sizes.map(s=>{
+          const base = r.base ?? s.base;
+          const imax110 = r.mult*base;
+          return `${temperature.factor.toFixed(3)} × ${imax110.toFixed(4)} = ${(temperature.factor*imax110).toFixed(4)}`;
+        }).join('<br>');
+        html += '<tr>' +
+          (li===0&&ri===0?`<td rowspan="${viaRows}">${v.id}</td>`:'') +
+          (ri===0?`<td rowspan="${ln.rules.length}">${sizeText}</td><td rowspan="${ln.rules.length}">${ln.metal}</td>`:'') +
+          `<td>${bottom}</td><td>${upper}</td><td class="mono">${formulas}</td><td class="mono">${adjusted}</td><td>${applicabilityLabel(r.note)}</td></tr>`;
+        rowCount++;
+      }
+    }
+  }
+  table.innerHTML = html;
+  if(rowCount!==119) throw new Error(`Table 10.4.4 规则数量异常：${rowCount}，预期 119`);
+}
+function calcVia(){
+  const stackVia=currentStackVia();
+  const entry=currentViaEntry();
+  const out = $('viaResult');
+  const temperature = currentTemperature();
+  if(stackVia.kind==='rv'){
+    const imax110=stackVia.imax110;
+    const imax=temperature.apFactor*imax110;
+    out.style.display='block';
+    out.className='result';
+    out.innerHTML=`Imax @ ${temperature.label} = <span class="big">${imax.toFixed(4)} mA</span> <span class="unit">per RV</span><br>`+
+      `<span class="formula">${temperature.apFactor.toFixed(3)} × ${imax110.toFixed(4)} = ${imax.toFixed(4)}</span><br>`+
+      `<span class="formula">Imax @ 110°C = ${imax110.toFixed(4)} mA per RV</span>`+
+      `<div class="explain">实际层：RV（${stackVia.bottom} → ${stackVia.upper}）；drawn size ${stackVia.size} µm²；后台规则：Table 10.4.14，使用 AP/RV 专用温度系数。</div>`;
+    return;
+  }
+  const ln = entry.landing;
+  const defaultBase = currentBase();
+  const bL = parseFloat($('bL').value), bW = parseFloat($('bW').value);
+  const uL = parseFloat($('uL').value), uW = parseFloat($('uW').value);
+  if (![bL,bW,uL,uW].every(Number.isFinite)) { out.style.display='none'; return; }
+  out.style.display = 'block';
+  if([bL,bW,uL,uW].some(v=>v<=0)) {
+    out.className = 'result warn';
+    out.textContent = '底金属和上金属的长度、宽度都必须大于 0。';
+    return;
+  }
+  const resolved = resolveViaRules(ln,defaultBase,bL,bW,uL,uW);
+  const {rule,base,imax:imax110} = resolved.selected;
+  const imax = temperature.factor*imax110;
+  if(!Number.isFinite(imax)) {
+    out.className = 'result warn';
+    out.textContent = '规则数据无效，无法计算 Imax。';
+    return;
+  }
+  const condition = resolved.usedFallback ? '其他组合（fallback）' : `底层 ${sideLabel(rule.bL,rule.bW)}；上层 ${sideLabel(rule.uL,rule.uW)}`;
+  const qualifier = qualifierLabel(rule.note);
+  const tag = qualifier ? `<span class="tag">${qualifier}</span>` : '';
+  const worst = resolved.candidates.length>1 ? `同时命中 ${resolved.candidates.length} 条具体规则，已取其中最小 Imax。` : '命中 1 条适用规则。';
+  out.className = 'result';
+  out.innerHTML = `Imax @ ${temperature.label} = <span class="big">${imax.toFixed(4)} mA</span> <span class="unit">per via</span><br>` +
+    `<span class="formula">${temperature.factor.toFixed(3)} × [${rule.mult} × ${base.toFixed(4)}] = ${imax.toFixed(4)} ${tag}</span><br>` +
+    `<span class="formula">Imax @ 110°C = ${imax110.toFixed(4)} mA per via</span>` +
+    `<div class="explain">实际层：${stackVia.id}（${stackVia.bottom} → ${stackVia.upper}）<br>后台映射：${stackVia.code} · ${entry.via.id} / landing ${entry.landingMetal}<br>${condition}<br>${worst}</div>`;
+}
+
+$('metalW').addEventListener('input', calcMetal);
+$('metalL').addEventListener('input', calcMetal);
+metalLevel.addEventListener('change', ()=>{ updateMetalFields(); calcMetal(); });
+junctionTemp.addEventListener('change', ()=>{
+  updateTemperatureInfo();
+  calcMetal();
+  buildViaRuleTable();
+  buildFullViaTable();
+  calcVia();
+});
+['bL','bW','uL','uW'].forEach(id=>$(id).addEventListener('input', calcVia));
+viaType.addEventListener('change', ()=>{ renderSizes(); calcVia(); });
+viaSize.addEventListener('change', ()=>{ updateViaConnection(); buildViaRuleTable(); calcVia(); });
+updateMetalFields();
+renderSizes();
+buildFullViaTable();
+</script>
+</body>
+</html>
